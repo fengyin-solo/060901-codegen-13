@@ -24,7 +24,6 @@ const {
   flipNextCard, 
   emergencyPick, 
   shuffleCards,
-  getCurrentPlayer,
   closeTruthOrDare
 } = useGame()
 const { isRoomExpired } = useExpire()
@@ -34,7 +33,6 @@ const {
   isHelperEnabled,
   showHelperPanel,
   currentSuggestions,
-  currentPlayerName: helperPlayerName,
   isWarning,
   isAlerting,
   progressPercentage,
@@ -47,7 +45,8 @@ const {
   manuallyTriggerHelper,
   dismissHelper,
   toggleHelper,
-  resetHelper
+  resetHelper,
+  setThreshold
 } = useHostHelper()
 
 const roomId = computed(() => route.params.id as string)
@@ -55,13 +54,6 @@ const showEndConfirm = ref(false)
 const showResetConfirm = ref(false)
 const showSettingsPanel = ref(false)
 const usedFollowUps = ref<FollowUp[]>([])
-
-const currentPlayerName = computed(() => {
-  if (currentRoom.value) {
-    return getCurrentPlayer(currentRoom.value)
-  }
-  return ''
-})
 
 const hasUnflippedTopics = computed(() => {
   if (!currentRoom.value) return false
@@ -76,8 +68,10 @@ const thresholdOptions = [
 ]
 
 watch(currentTopic, (newTopic) => {
-  if (newTopic && currentPlayerName.value) {
-    startSilenceTimer(newTopic, currentPlayerName.value)
+  console.log('[GamePage] currentTopic 变化:', newTopic?.content)
+  if (newTopic && currentPlayer.value) {
+    console.log('[GamePage] 启动计时器，玩家:', currentPlayer.value)
+    startSilenceTimer(newTopic, currentPlayer.value)
   }
 })
 
@@ -100,6 +94,8 @@ const handleFlipCard = () => {
   if (isFlipping.value || isShuffling.value) return
   
   resetHelper()
+  usedFollowUps.value = []
+  
   const topic = flipNextCard(roomId.value)
   if (!topic) {
     alert('所有话题都聊完了！点急救试试吧～')
@@ -110,6 +106,8 @@ const handleEmergency = () => {
   if (isFlipping.value || isShuffling.value) return
   
   resetHelper()
+  usedFollowUps.value = []
+  
   const topic = emergencyPick(roomId.value)
   if (topic) {
     currentTopic.value = topic
@@ -122,6 +120,7 @@ const handleShuffle = () => {
   
   if (confirm('重新洗牌会重置所有话题，确定吗？')) {
     resetHelper()
+    usedFollowUps.value = []
     shuffleCards(roomId.value)
   }
 }
@@ -140,6 +139,7 @@ const handleResetGame = () => {
   if (confirm('确定要重新开始吗？所有话题会被重置。')) {
     stopSilenceTimer()
     resetHelper()
+    usedFollowUps.value = []
     resetGame(roomId.value)
     showResetConfirm.value = false
     router.push(`/room/${roomId.value}`)
@@ -155,7 +155,7 @@ const goBack = () => {
 const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
   closeTruthOrDare()
   
-  if (choice === 'talk' && currentTopic.value && currentPlayerName.value) {
+  if (choice === 'talk') {
     stopSilenceTimer()
   }
   
@@ -176,14 +176,18 @@ const handleHostUseSuggestion = (followUp: FollowUp) => {
 }
 
 const handleManualTrigger = () => {
-  if (currentTopic.value && currentPlayerName.value) {
-    manuallyTriggerHelper(currentTopic.value, currentPlayerName.value)
+  if (currentTopic.value && currentPlayer.value) {
+    manuallyTriggerHelper(currentTopic.value, currentPlayer.value)
   }
 }
 
 const handleSetThreshold = (value: number) => {
-  thresholdSeconds.value = value
+  setThreshold(value)
   showSettingsPanel.value = false
+}
+
+const handleToggleHelper = () => {
+  toggleHelper()
 }
 </script>
 
@@ -210,13 +214,13 @@ const handleSetThreshold = (value: number) => {
       :show-helper-panel="showHelperPanel"
       :current-suggestions="currentSuggestions"
       :current-topic="currentTopic"
-      :current-player-name="helperPlayerName || currentPlayerName"
+      :current-player-name="currentPlayer"
       :is-helper-enabled="isHelperEnabled"
       @refresh="refreshSuggestions"
       @use="handleHostUseSuggestion"
       @dismiss="dismissHelper"
       @manual-trigger="handleManualTrigger"
-      @toggle-enabled="toggleHelper"
+      @toggle-enabled="handleToggleHelper"
     />
 
     <div class="relative z-10 max-w-4xl mx-auto px-4 py-6">
@@ -264,14 +268,14 @@ const handleSetThreshold = (value: number) => {
         </h3>
         <div class="flex justify-center flex-wrap gap-2">
           <div 
-            v-for="(member, index) in currentRoom.members" 
+            v-for="member in currentRoom.members" 
             :key="member.id"
             class="relative"
           >
             <div 
               class="transition-all duration-300"
               :class="{
-                'scale-110': index === (currentRoom.currentTurn % currentRoom.members.length)
+                'scale-110': member.name === currentPlayer
               }"
             >
               <MemberAvatar 
@@ -282,7 +286,7 @@ const handleSetThreshold = (value: number) => {
               />
             </div>
             <div 
-              v-if="index === (currentRoom.currentTurn % currentRoom.members.length)"
+              v-if="member.name === currentPlayer"
               class="absolute -top-2 left-1/2 transform -translate-x-1/2 text-lg animate-bounce"
             >
               👇
@@ -299,7 +303,7 @@ const handleSetThreshold = (value: number) => {
         <FlipCard 
           :topic="currentTopic"
           :is-flipping="isFlipping"
-          :player-name="currentPlayerName"
+          :player-name="currentPlayer"
         />
         
         <div 
@@ -374,7 +378,7 @@ const handleSetThreshold = (value: number) => {
         <div class="space-y-2">
           <div 
             v-for="(fu, idx) in usedFollowUps.slice(-3)" 
-            :key="fu.id + idx"
+            :key="fu.id + '-' + idx"
             class="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2"
           >
             {{ fu.pattern }}
@@ -467,7 +471,7 @@ const handleSetThreshold = (value: number) => {
             <button 
               class="relative w-12 h-7 rounded-full transition-colors"
               :class="isHelperEnabled ? 'bg-purple-500' : 'bg-gray-300'"
-              @click="toggleHelper"
+              @click="handleToggleHelper"
             >
               <div 
                 class="absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform"

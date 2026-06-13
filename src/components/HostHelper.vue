@@ -2,7 +2,7 @@
 import { computed, watch, ref } from 'vue'
 import type { FollowUp, FollowUpCategory } from '@/topics/followUps'
 import { FOLLOWUP_CATEGORIES } from '@/topics/followUps'
-import { TOPIC_EMOJIS, TOPIC_COLORS } from '@/types'
+import { TOPIC_EMOJIS } from '@/types'
 import type { Topic } from '@/types'
 
 const props = defineProps<{
@@ -25,7 +25,6 @@ const emit = defineEmits<{
   (e: 'use', followUp: FollowUp): void
   (e: 'dismiss'): void
   (e: 'manualTrigger'): void
-  (e: 'toggleEnabled'): void
 }>()
 
 const selectedFollowUp = ref<FollowUp | null>(null)
@@ -34,12 +33,6 @@ const progressColor = computed(() => {
   if (props.progressPercentage >= 100) return 'from-red-400 to-pink-500'
   if (props.progressPercentage >= 60) return 'from-yellow-400 to-orange-500'
   return 'from-green-400 to-teal-400'
-})
-
-const timerTextColor = computed(() => {
-  if (props.isAlerting) return 'text-red-300'
-  if (props.isWarning) return 'text-yellow-300'
-  return 'text-white/70'
 })
 
 const getCategoryInfo = (category: FollowUp['category']): FollowUpCategory => {
@@ -56,6 +49,18 @@ const handleUseSuggestion = (followUp: FollowUp) => {
   selectedFollowUp.value = followUp
   emit('use', followUp)
 }
+
+const handleRefresh = () => {
+  emit('refresh')
+}
+
+const handleDismiss = () => {
+  emit('dismiss')
+}
+
+const handleManualTrigger = () => {
+  emit('manualTrigger')
+}
 </script>
 
 <template>
@@ -63,7 +68,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
     <!-- 顶部计时进度条 -->
     <div 
       v-if="isHelperEnabled && currentTopic"
-      class="fixed top-0 left-0 right-0 z-40 h-2 bg-black/30 overflow-hidden"
+      class="fixed top-0 left-0 right-0 z-40 h-1.5 bg-black/30 overflow-hidden"
     >
       <div 
         class="h-full bg-gradient-to-r transition-all duration-500 ease-out"
@@ -77,18 +82,12 @@ const handleUseSuggestion = (followUp: FollowUp) => {
       </div>
     </div>
 
-    <!-- 计时指示器小浮标 -->
+    <!-- 悬浮计时指示器 -->
     <div 
       v-if="isHelperEnabled && currentTopic && !showHelperPanel"
-      class="fixed bottom-32 right-4 z-40"
+      class="fixed bottom-36 right-4 z-40"
     >
-      <div 
-        class="flex flex-col items-center gap-2 transition-all duration-300"
-        :class="{
-          'scale-100': true,
-          'animate-bounce': isAlerting
-        }"
-      >
+      <div class="flex flex-col items-center gap-2">
         <div 
           class="px-3 py-2 rounded-2xl backdrop-blur-md shadow-lg flex items-center gap-2 transition-all"
           :class="{
@@ -97,7 +96,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
             'bg-white/20 text-white/80': !isWarning && !isAlerting
           }"
         >
-          <span class="text-lg">
+          <span class="text-base">
             {{ isAlerting ? '😅' : isWarning ? '🤔' : '⏱️' }}
           </span>
           <span class="text-sm font-mono font-medium">
@@ -108,45 +107,35 @@ const handleUseSuggestion = (followUp: FollowUp) => {
         <button 
           v-if="isAlerting"
           class="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-full shadow-lg text-sm font-medium hover:opacity-90 transition-opacity animate-pulse"
-          @click="emit('manualTrigger')"
+          @click.stop="handleManualTrigger"
         >
           🎙️ 接话
         </button>
       </div>
     </div>
 
-    <!-- 助手设置按钮 -->
-    <div class="fixed top-20 right-4 z-40">
-      <button 
-        class="w-10 h-10 rounded-full shadow-lg flex items-center justify-center transition-all backdrop-blur-md"
-        :class="[
-          isHelperEnabled 
-            ? 'bg-white/20 hover:bg-white/30 text-white' 
-            : 'bg-gray-500/50 hover:bg-gray-500/70 text-white/70'
-        ]"
-        @click="emit('toggleEnabled')"
-        :title="isHelperEnabled ? '关闭主持助手' : '开启主持助手'"
-      >
-        <span class="text-lg">{{ isHelperEnabled ? '🎙️' : '🔇' }}</span>
-      </button>
-    </div>
-
-    <!-- 主持助手面板 -->
+    <!-- 主持助手底部面板 -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"
-      enter-from-class="opacity-0 translate-y-4"
+      enter-from-class="opacity-0 translate-y-full"
       enter-to-class="opacity-100 translate-y-0"
       leave-active-class="transition-all duration-200 ease-in"
       leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-4"
+      leave-to-class="opacity-0 translate-y-full"
     >
       <div 
         v-if="showHelperPanel && currentTopic"
-        class="fixed inset-x-0 bottom-0 z-50 p-4 pb-8"
+        class="fixed inset-x-0 bottom-0 z-50"
       >
-        <div class="max-w-lg mx-auto">
-          <!-- 主卡片 -->
-          <div class="bg-white rounded-3xl shadow-2xl overflow-hidden animate-[slideUp_0.3s_ease-out]">
+        <!-- 背景遮罩 -->
+        <div 
+          class="fixed inset-0 bg-black/50 backdrop-blur-sm -z-10"
+          @click="handleDismiss"
+        ></div>
+        
+        <!-- 主卡片 -->
+        <div class="max-w-lg mx-auto p-4 pb-8">
+          <div class="bg-white rounded-3xl shadow-2xl overflow-hidden">
             <!-- 头部 -->
             <div 
               class="px-6 py-4 text-white relative overflow-hidden"
@@ -164,9 +153,9 @@ const handleUseSuggestion = (followUp: FollowUp) => {
                   </div>
                   <button 
                     class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors"
-                    @click="emit('dismiss')"
+                    @click="handleDismiss"
                   >
-                    <span class="text-lg">✕</span>
+                    <span class="text-sm">✕</span>
                   </button>
                 </div>
                 
@@ -175,7 +164,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
                     <span class="text-xl mt-0.5">{{ TOPIC_EMOJIS[currentTopic.type] }}</span>
                     <div class="flex-1 min-w-0">
                       <p class="text-sm opacity-90 line-clamp-2">
-                        当前话题：{{ currentTopic.content }}
+                        {{ currentTopic.content }}
                       </p>
                       <p class="text-xs opacity-70 mt-1">
                         轮到：{{ currentPlayerName }} · 冷场 {{ formattedTime }}
@@ -187,7 +176,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
             </div>
 
             <!-- 建议列表 -->
-            <div class="p-4 max-h-96 overflow-y-auto">
+            <div class="p-4 max-h-80 overflow-y-auto">
               <div class="flex items-center justify-between mb-3">
                 <h4 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <span>💡</span>
@@ -195,7 +184,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
                 </h4>
                 <button 
                   class="text-xs text-purple-600 hover:text-purple-700 flex items-center gap-1 py-1 px-2 rounded-lg hover:bg-purple-50 transition-colors"
-                  @click="emit('refresh')"
+                  @click="handleRefresh"
                 >
                   <span>🔄</span>
                   换一批
@@ -205,10 +194,10 @@ const handleUseSuggestion = (followUp: FollowUp) => {
               <div class="space-y-3">
                 <div 
                   v-for="(followUp, index) in currentSuggestions" 
-                  :key="followUp.id + index"
+                  :key="followUp.id + '-' + index"
                   class="group relative rounded-2xl border-2 transition-all duration-200 cursor-pointer overflow-hidden"
                   :class="[
-                    selectedFollowUp?.id === followUp.id
+                    selectedFollowUp?.id === followUp.id && selectedFollowUp?.pattern === followUp.pattern
                       ? 'border-purple-500 bg-purple-50 shadow-md scale-[1.02]'
                       : 'border-gray-100 bg-white hover:border-purple-200 hover:bg-gray-50 hover:shadow-sm'
                   ]"
@@ -233,7 +222,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
                       </div>
                       
                       <div 
-                        v-if="selectedFollowUp?.id === followUp.id"
+                        v-if="selectedFollowUp?.id === followUp.id && selectedFollowUp?.pattern === followUp.pattern"
                         class="flex items-center gap-1 text-xs text-purple-600 font-medium"
                       >
                         <span>✓</span>
@@ -266,7 +255,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
               <div class="grid grid-cols-2 gap-3">
                 <button 
                   class="px-4 py-3 rounded-xl text-sm font-medium transition-all bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 flex items-center justify-center gap-2"
-                  @click="emit('dismiss')"
+                  @click="handleDismiss"
                 >
                   <span>⏭️</span>
                   再给点时间
@@ -276,7 +265,7 @@ const handleUseSuggestion = (followUp: FollowUp) => {
                   :style="{ 
                     background: `linear-gradient(135deg, ${currentTopic.color} 0%, ${currentTopic.color}dd 100%)`
                   }"
-                  @click="emit('refresh')"
+                  @click="handleRefresh"
                 >
                   <span>🎲</span>
                   换个话题方向
@@ -285,29 +274,12 @@ const handleUseSuggestion = (followUp: FollowUp) => {
             </div>
           </div>
         </div>
-
-        <!-- 背景遮罩 -->
-        <div 
-          class="fixed inset-0 bg-black/50 -z-10 backdrop-blur-sm"
-          @click="emit('dismiss')"
-        ></div>
       </div>
     </Transition>
   </div>
 </template>
 
 <style scoped>
-@keyframes slideUp {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

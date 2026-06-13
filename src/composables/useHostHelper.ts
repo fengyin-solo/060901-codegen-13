@@ -1,9 +1,8 @@
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import type { Topic, TopicType } from '@/types'
 import type { FollowUp } from '@/topics/followUps'
 import { 
   getMultipleFollowUps, 
-  getRandomFollowUp, 
   formatFollowUpWithName,
   FOLLOWUP_CATEGORIES 
 } from '@/topics/followUps'
@@ -114,19 +113,14 @@ export function useHostHelper() {
   const refreshSuggestions = () => {
     if (!currentTopic.value) return
     
-    const newSuggestion = getRandomFollowUp(currentTopic.value.type)
-    const formatted: FollowUp = {
-      ...newSuggestion,
-      pattern: formatFollowUpWithName(newSuggestion, currentPlayerName.value)
-    }
+    const newSuggestions = getMultipleFollowUps(currentTopic.value.type, 3)
+    currentSuggestions.value = newSuggestions.map(s => ({
+      ...s,
+      pattern: formatFollowUpWithName(s, currentPlayerName.value)
+    }))
     
-    if (currentSuggestions.value.length >= 3) {
-      currentSuggestions.value.shift()
-    }
-    currentSuggestions.value.push(formatted)
-    
-    console.log('[HostHelper] 刷新建议：', formatted.pattern)
-    return formatted
+    console.log('[HostHelper] 刷新全部建议：', currentSuggestions.value.length, '条')
+    return currentSuggestions.value
   }
 
   const useSuggestion = (followUp: FollowUp) => {
