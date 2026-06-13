@@ -2,6 +2,14 @@ import type { TopicTemplate, TopicType } from '@/types'
 import { defaultTopics } from './default'
 import { deepTopics } from './deep'
 import { sillyTopics } from './silly'
+import { 
+  getFollowUpsByType, 
+  getRandomFollowUp, 
+  getMultipleFollowUps,
+  formatFollowUpWithName,
+  FOLLOWUP_CATEGORIES 
+} from './followUps'
+import type { FollowUp, FollowUpCategory } from './followUps'
 
 export const allTopics: TopicTemplate[] = [
   ...defaultTopics,
@@ -27,3 +35,17 @@ export function getRandomBackupQuestion(): string {
 export * from './default'
 export * from './deep'
 export * from './silly'
+export * from './followUps'
+
+export {
+  getFollowUpsByType,
+  getRandomFollowUp,
+  getMultipleFollowUps,
+  formatFollowUpWithName,
+  FOLLOWUP_CATEGORIES
+}
+
+export type {
+  FollowUp,
+  FollowUpCategory
+}

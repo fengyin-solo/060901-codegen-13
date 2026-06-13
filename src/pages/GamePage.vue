@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useRoom } from '@/composables/useRoom'
 import { useGame } from '@/composables/useGame'
 import { useExpire } from '@/composables/useExpire'
+import { useHostHelper } from '@/composables/useHostHelper'
 import FlipCard from '@/components/FlipCard.vue'
 import MemberAvatar from '@/components/MemberAvatar.vue'
+import HostHelper from '@/components/HostHelper.vue'
 import type { Topic } from '@/types'
+import type { FollowUp } from '@/topics/followUps'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,10 +28,33 @@ const {
   closeTruthOrDare
 } = useGame()
 const { isRoomExpired } = useExpire()
+const {
+  elapsedSeconds,
+  thresholdSeconds,
+  isHelperEnabled,
+  showHelperPanel,
+  currentSuggestions,
+  currentPlayerName: helperPlayerName,
+  isWarning,
+  isAlerting,
+  progressPercentage,
+  remainingSeconds,
+  formattedTime,
+  startSilenceTimer,
+  stopSilenceTimer,
+  refreshSuggestions,
+  useSuggestion,
+  manuallyTriggerHelper,
+  dismissHelper,
+  toggleHelper,
+  resetHelper
+} = useHostHelper()
 
 const roomId = computed(() => route.params.id as string)
 const showEndConfirm = ref(false)
 const showResetConfirm = ref(false)
+const showSettingsPanel = ref(false)
+const usedFollowUps = ref<FollowUp[]>([])
 
 const currentPlayerName = computed(() => {
   if (currentRoom.value) {
@@ -40,6 +66,19 @@ const currentPlayerName = computed(() => {
 const hasUnflippedTopics = computed(() => {
   if (!currentRoom.value) return false
   return currentRoom.value.topics.some((t: Topic) => !t.isFlipped)
+})
+
+const thresholdOptions = [
+  { label: '快速模式 (10秒)', value: 10 },
+  { label: '标准模式 (20秒)', value: 20 },
+  { label: '宽松模式 (30秒)', value: 30 },
+  { label: '从容模式 (45秒)', value: 45 }
+]
+
+watch(currentTopic, (newTopic) => {
+  if (newTopic && currentPlayerName.value) {
+    startSilenceTimer(newTopic, currentPlayerName.value)
+  }
 })
 
 onMounted(() => {
@@ -60,6 +99,7 @@ onMounted(() => {
 const handleFlipCard = () => {
   if (isFlipping.value || isShuffling.value) return
   
+  resetHelper()
   const topic = flipNextCard(roomId.value)
   if (!topic) {
     alert('所有话题都聊完了！点急救试试吧～')
@@ -69,6 +109,7 @@ const handleFlipCard = () => {
 const handleEmergency = () => {
   if (isFlipping.value || isShuffling.value) return
   
+  resetHelper()
   const topic = emergencyPick(roomId.value)
   if (topic) {
     currentTopic.value = topic
@@ -80,12 +121,15 @@ const handleShuffle = () => {
   if (isFlipping.value || isShuffling.value) return
   
   if (confirm('重新洗牌会重置所有话题，确定吗？')) {
+    resetHelper()
     shuffleCards(roomId.value)
   }
 }
 
 const handleEndGame = () => {
   if (confirm('确定要结束游戏吗？')) {
+    stopSilenceTimer()
+    resetHelper()
     endGame(roomId.value)
     showEndConfirm.value = false
     router.push(`/room/${roomId.value}`)
@@ -94,6 +138,8 @@ const handleEndGame = () => {
 
 const handleResetGame = () => {
   if (confirm('确定要重新开始吗？所有话题会被重置。')) {
+    stopSilenceTimer()
+    resetHelper()
     resetGame(roomId.value)
     showResetConfirm.value = false
     router.push(`/room/${roomId.value}`)
@@ -101,16 +147,43 @@ const handleResetGame = () => {
 }
 
 const goBack = () => {
+  stopSilenceTimer()
+  resetHelper()
   router.push(`/room/${roomId.value}`)
 }
 
 const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
   closeTruthOrDare()
+  
+  if (choice === 'talk' && currentTopic.value && currentPlayerName.value) {
+    stopSilenceTimer()
+  }
+  
   if (choice === 'dare') {
+    stopSilenceTimer()
     alert('大胆去做吧！记得拍视频留证据 📸')
   } else if (choice === 'truth') {
+    stopSilenceTimer()
     alert('说真话的孩子运气不会太差 👀')
   }
+}
+
+const handleHostUseSuggestion = (followUp: FollowUp) => {
+  useSuggestion(followUp)
+  if (!usedFollowUps.value.find(u => u.id === followUp.id)) {
+    usedFollowUps.value.push(followUp)
+  }
+}
+
+const handleManualTrigger = () => {
+  if (currentTopic.value && currentPlayerName.value) {
+    manuallyTriggerHelper(currentTopic.value, currentPlayerName.value)
+  }
+}
+
+const handleSetThreshold = (value: number) => {
+  thresholdSeconds.value = value
+  showSettingsPanel.value = false
 }
 </script>
 
@@ -125,6 +198,26 @@ const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
       <div class="absolute bottom-20 left-20 text-5xl opacity-20 animate-pulse" style="animation-delay: 1s">💫</div>
       <div class="absolute bottom-10 right-10 text-6xl opacity-20 animate-pulse" style="animation-delay: 1.5s">🎆</div>
     </div>
+
+    <HostHelper
+      :elapsed-seconds="elapsedSeconds"
+      :threshold-seconds="thresholdSeconds"
+      :progress-percentage="progressPercentage"
+      :is-warning="isWarning"
+      :is-alerting="isAlerting"
+      :remaining-seconds="remainingSeconds"
+      :formatted-time="formattedTime"
+      :show-helper-panel="showHelperPanel"
+      :current-suggestions="currentSuggestions"
+      :current-topic="currentTopic"
+      :current-player-name="helperPlayerName || currentPlayerName"
+      :is-helper-enabled="isHelperEnabled"
+      @refresh="refreshSuggestions"
+      @use="handleHostUseSuggestion"
+      @dismiss="dismissHelper"
+      @manual-trigger="handleManualTrigger"
+      @toggle-enabled="toggleHelper"
+    />
 
     <div class="relative z-10 max-w-4xl mx-auto px-4 py-6">
       <div class="flex items-center justify-between mb-6">
@@ -141,7 +234,12 @@ const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
           <div class="text-sm text-white/60">🎴 游戏进行中</div>
         </div>
         
-        <div class="w-20"></div>
+        <button 
+          class="flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+          @click="showSettingsPanel = true"
+        >
+          <span>⚙️</span>
+        </button>
       </div>
 
       <div class="bg-white/10 backdrop-blur-md rounded-2xl p-4 mb-6">
@@ -215,33 +313,73 @@ const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
         </div>
       </div>
 
-      <div class="grid grid-cols-3 gap-3 mb-6">
+      <div class="grid grid-cols-4 gap-3 mb-6">
         <button 
-          class="px-4 py-4 bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="px-2 py-4 bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="!hasUnflippedTopics || isFlipping || isShuffling"
           @click="handleFlipCard"
         >
           <span class="text-3xl">🎴</span>
-          <span class="text-sm font-medium">翻牌</span>
+          <span class="text-xs font-medium">翻牌</span>
         </button>
         
         <button 
-          class="px-4 py-4 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-2xl hover:opacity-90 transition-all flex flex-col items-center gap-1 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          class="px-2 py-4 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-2xl hover:opacity-90 transition-all flex flex-col items-center gap-1 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="isFlipping || isShuffling"
           @click="handleEmergency"
         >
           <span class="text-3xl animate-pulse">🆘</span>
-          <span class="text-sm font-medium">急救</span>
+          <span class="text-xs font-medium">急救</span>
         </button>
         
         <button 
-          class="px-4 py-4 bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="px-2 py-4 bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed relative"
+          :disabled="!currentTopic || isFlipping || isShuffling"
+          @click.stop="handleManualTrigger"
+          :class="{ 'ring-2 ring-yellow-400 ring-opacity-50': isWarning }"
+        >
+          <span class="text-3xl" :class="{ 'animate-bounce': isAlerting }">🎙️</span>
+          <span class="text-xs font-medium">主持</span>
+          <span 
+            v-if="isHelperEnabled && currentTopic && elapsedSeconds > 0"
+            class="absolute -top-1 -right-1 min-w-[24px] h-6 px-1.5 text-xs rounded-full flex items-center justify-center font-mono"
+            :class="{
+              'bg-red-500 text-white': isAlerting,
+              'bg-yellow-500 text-white': isWarning && !isAlerting,
+              'bg-white/20 text-white/70': !isWarning && !isAlerting
+            }"
+          >
+            {{ formattedTime }}
+          </span>
+        </button>
+        
+        <button 
+          class="px-2 py-4 bg-white/10 backdrop-blur-md rounded-2xl hover:bg-white/20 transition-all flex flex-col items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
           :disabled="isFlipping || isShuffling"
           @click="handleShuffle"
         >
           <span class="text-3xl">🔄</span>
-          <span class="text-sm font-medium">重洗</span>
+          <span class="text-xs font-medium">重洗</span>
         </button>
+      </div>
+
+      <div 
+        v-if="usedFollowUps.length > 0" 
+        class="bg-white/5 backdrop-blur-sm rounded-2xl p-4 mb-6 border border-white/10"
+      >
+        <h4 class="text-xs font-medium text-white/60 mb-3 flex items-center gap-2">
+          <span>📝</span>
+          本轮用过的追问 ({{ usedFollowUps.length }})
+        </h4>
+        <div class="space-y-2">
+          <div 
+            v-for="(fu, idx) in usedFollowUps.slice(-3)" 
+            :key="fu.id + idx"
+            class="text-xs text-white/70 bg-white/5 rounded-lg px-3 py-2"
+          >
+            {{ fu.pattern }}
+          </div>
+        </div>
       </div>
 
       <div class="flex gap-3">
@@ -306,6 +444,67 @@ const handleChoice = (choice: 'talk' | 'truth' | 'dare') => {
           @click="closeTruthOrDare"
         >
           跳过
+        </button>
+      </div>
+    </div>
+
+    <div 
+      v-if="showSettingsPanel"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+      @click.self="showSettingsPanel = false"
+    >
+      <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+        <h3 class="text-xl font-bold text-gray-800 mb-2 text-center flex items-center justify-center gap-2">
+          <span>⚙️</span> 主持助手设置
+        </h3>
+        <p class="text-sm text-gray-500 mb-6 text-center">
+          调整冷场检测时间和助手开关
+        </p>
+
+        <div class="mb-6">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-sm font-medium text-gray-700">主持助手</span>
+            <button 
+              class="relative w-12 h-7 rounded-full transition-colors"
+              :class="isHelperEnabled ? 'bg-purple-500' : 'bg-gray-300'"
+              @click="toggleHelper"
+            >
+              <div 
+                class="absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform"
+                :class="isHelperEnabled ? 'translate-x-5' : 'translate-x-0.5'"
+              ></div>
+            </button>
+          </div>
+          <p class="text-xs text-gray-400">
+            {{ isHelperEnabled ? '助手会在冷场时自动给出追问建议' : '关闭后不会自动提醒' }}
+          </p>
+        </div>
+
+        <div class="mb-6" :class="{ 'opacity-50 pointer-events-none': !isHelperEnabled }">
+          <span class="text-sm font-medium text-gray-700 block mb-3">冷场触发时间</span>
+          <div class="space-y-2">
+            <button 
+              v-for="opt in thresholdOptions" 
+              :key="opt.value"
+              class="w-full px-4 py-3 rounded-xl text-left text-sm transition-all flex items-center justify-between"
+              :class="[
+                thresholdSeconds === opt.value
+                  ? 'bg-purple-500 text-white shadow-md'
+                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100'
+              ]"
+              @click="handleSetThreshold(opt.value)"
+            >
+              <span>{{ opt.label }}</span>
+              <span v-if="thresholdSeconds === opt.value">✓</span>
+            </button>
+          </div>
+        </div>
+
+        <button 
+          class="w-full px-6 py-3 bg-gray-100 text-gray-600 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+          @click="showSettingsPanel = false"
+        >
+          完成
         </button>
       </div>
     </div>
